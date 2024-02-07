@@ -1,0 +1,23 @@
+paths:
+  data_path : '/tng4/users/skayasth/Yearly/2023/Jan/TCEQ/Data_for_PCNN'
+  save_dir : 'snapshots/Fixed_model'
+  log_dir : 'logs/Fixed_model'
+
+training:
+  batch_size: 32
+  log_interval: 100
+  max_iter: 100000
+  lr: 0.00001
+  save_model_interval : 2000
+  vis_interval : 2000
+  resume: False
+  
+model:
+  img_size: (128, 256)
+  
+  input_channels: 5
+
+  LAMBDA_DICT : {
+    'valid': 1.0, 'hole': 6.0, 'tv': 0.1, 'prc': 0.05, 'style': 120.0}
+
+  
