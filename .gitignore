@@ -3,3 +3,4 @@ maxes/*
 __pycache__/
 logs/
 test_output/
+*.npy

@@ -9,7 +9,7 @@ from models.PConv_model import PConvUNet
 from data_prep import Data_prep
 from net import VGG16FeatureExtractor
 from loss import InpaintingLoss, IOA_Loss
-from torch.utils.data import TensorDataset, DataLoader, random_split
+from torch.utils.data import TensorDataset, DataLoader, random_split, Dataset
 from tensorboardX import SummaryWriter
 from torch.utils import data
 import yaml
@@ -20,16 +20,32 @@ from torchvision.utils import make_grid
 from torchvision.utils import save_image
 import matplotlib.pyplot as plt
 
+class ImageMaskDataset(Dataset):
+    def __init__(self, data_array, out, transform=None):
+        self.data_array = data_array
+        self.transform = transform
+        self.out = out
 
-class InfiniteSampler(data.sampler.Sampler):
+    def __len__(self):
+        return self.data_array.shape[1]
+
+    def __getitem__(self, idx):
+        image = self.data_array[0, idx]
+        mask = self.data_array[1, idx]
+        out = self.out[idx]
+        if self.transform:
+            image = self.transform(image)
+            mask = self.transform(mask)
+        return image, mask, out
+    
+from torch.utils.data.sampler import Sampler
+
+class InfiniteSampler(Sampler):
     def __init__(self, num_samples):
         self.num_samples = num_samples
 
     def __iter__(self):
         return iter(self.loop())
-
-    def __len__(self):
-        return 2 ** 31
 
     def loop(self):
         i = 0
@@ -41,7 +57,6 @@ class InfiniteSampler(data.sampler.Sampler):
                 np.random.seed()
                 order = np.random.permutation(self.num_samples)
                 i = 0
-
 
 class Trainer:
     
@@ -88,22 +103,22 @@ class Trainer:
         # numpy_array = np.load('/tng4/users/skayasth/Yearly/2024/Feb/Gated_2024/deepfillv2-pytorch/numpy_array.npy')
         arr = np.load('in.npy')
         numpy_array = arr.transpose(0,1,4,2,3)
+        out = np.load('out.npy')
+        out = out.transpose(0,3,1,2)
 
-        numpy_array = numpy_array.transpose(0, 3, 1, 2)[0]
-        # numpy_array = numpy_array.reshape(8000, 3, 512, 512)
-        print('Creating Dataloader')
-        tensor_array = torch.tensor(numpy_array, dtype=torch.float32)
-        total_size = len(tensor_array)
-        train_size = int(0.8 * total_size)
-        eval_size = total_size - train_size
-            
-        train_dataset, eval_dataset = random_split(tensor_array, [train_size, eval_size])
+        # Assuming `main_array` is your input array
+        full_dataset = ImageMaskDataset(data_array=numpy_array, out=out)
+        train_size = int(0.85 * len(full_dataset))
+        eval_size = len(full_dataset) - train_size
+        train_dataset, eval_dataset = random_split(full_dataset, [train_size, eval_size])
         
         train_dataloader = DataLoader(
-        train_dataset, batch_size=self.batch_size,
-        sampler=InfiniteSampler(len(train_dataset)),
-        
-        num_workers=10)
+            train_dataset, 
+            self.batch_size, 
+            sampler=InfiniteSampler(len(train_dataset)), 
+            num_workers=10  
+        )
+
 
         # Creating the eval DataLoader
         eval_dataloader = DataLoader(
@@ -147,8 +162,8 @@ class Trainer:
     def save_img(self, real, mask, fake, iter):
         
         
-        fake = fake[0, 0, :, :] * 322
-        real = real[0, 0, :, :] * 322
+        fake = fake[0, 0, :, :] * 210
+        real = real[0, 0, :, :] * 210
         mask = mask[0, 0, :, :]
         
         # fake = fake[0, 0, :, :].detach().cpu().numpy()  * 322
@@ -157,7 +172,7 @@ class Trainer:
         
         masked = real * mask
         
-        grid1 = torch.cat((real, mask * 322), dim=0)    
+        grid1 = torch.cat((real, mask * 210), dim=0)    
         grid2 = torch.cat((masked, fake), dim=0)
         grid = torch.cat((grid1, grid2), dim=1)
         
@@ -212,18 +227,22 @@ class Trainer:
         tqdm_iterator = tqdm(range(start_iter, self.max_iter), desc='Training')
         for i in tqdm_iterator:
             self.model.train()
-            image = next(iterator_train)
-            gt = image
+            data_ = next(iterator_train)
+            image = data_[0]
+            mask = data_[1]
+            gt = data_[2]
             
             
             batch, channels, height, width = image.shape
-            mask = self.create_mask(self.batch_size, channels, height, width)
+            # mask = self.create_mask(self.batch_size, channels, height, width)
            
             image = image.to(self.device)
             mask = mask.to(self.device)
             gt = gt.to(self.device)
             
             output = self.model(image, mask)
+            # print(output.shape)
+            
             loss_dict = self.criterion(image, mask, output, gt)
             
             self.loss = 0.0
@@ -253,17 +272,23 @@ class Trainer:
                 self.model.eval()
                 eval_loss = 0.0
                 eval_steps = 0
+                
+                # print(len(eval_dataloader))
                 with torch.no_grad():  # Disable gradient computation
-                    for j,eval_image in enumerate(eval_dataloader):  # Assuming eval_image is directly usable
-                        if len(eval_image) != self.batch_size:
-                            continue
-                        eval_image = eval_image.to(self.device)
-                        eval_gt = eval_image
-                        eval_mask = self.create_mask(self.batch_size, channels, height, width, seed=i).to(self.device)
+                    for j,eval_data in enumerate(eval_dataloader):  # Assuming eval_image is directly usable
+                        # print(len(eval_data))
+                        # if len(eval_data) != self.batch_size:
+                        #     continue
+                        eval_image = eval_data[0].to(self.device)
+                        eval_mask = eval_data[1].to(self.device)
+                        eval_gt = eval_data[2].to(self.device)
+                        # eval_image = eval_image.to(self.device)
+                        # eval_gt = eval_image
+                        # eval_mask = self.create_mask(self.batch_size, channels, height, width, seed=i).to(self.device)
                         # If you have masks and ground truths in your eval dataset, unpack them here
                         
                         eval_output = self.model(eval_image, eval_mask)  # Forward pass
-                        
+                        # print(eval_output.shape)
                         eval_loss_dict = self.criterion(eval_image, eval_mask, eval_output, eval_gt)  # Compute loss
                         
                         for key, coef in self.LAMBDA_DICT.items():

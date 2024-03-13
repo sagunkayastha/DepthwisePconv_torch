@@ -7,26 +7,33 @@ import numpy as np
 import time
 import pickle
 from copy import deepcopy
+import yaml
+
 
 # This class is used to prepare the data for training and testing the model 
 class Data_prep:
     
     
     # initialize the class
-    def __init__(self, data_path):
+    def __init__(self, config_path):
         
         """
         class to prepare the data for training and testing the model
         :param data_path: path to the data
         :param opt: config object
         """
-
+        self.config_path = config_path
+        self.load_config(config_path)
         self.norm = False
-        self.data_path = data_path
+        self.data_path = self.config['paths']['data_path']
         self.save_path = 'maxes'
         self.load_data()
        
-        
+    def load_config(self, config_file):
+        with open(config_file, 'r') as ymlfile:
+            self.config = yaml.safe_load(ymlfile)
+        print(self.config)
+    
     def load_data(self):
         
         """
@@ -48,6 +55,7 @@ class Data_prep:
         else:
             print('norm with max')
             cmaq_max = 210
+            
             self.cmaq = np.einsum('ijk->kij', CMAQ_PM25['CMAQ_PM_All_Days_Filled'])
             self.cmaq = self.cmaq/cmaq_max
             self.modis = np.einsum('ijk->kij', MODIS_AOD_file['MODIS_AOD'])
@@ -215,8 +223,8 @@ class Data_prep:
         return self.xr_aug()
 
 if __name__ == "__main__":
-    path = "/dataFs/skayasth/2023/Jan/TCEQ/Data_stuffs/Data_for_PCNN"
-    create_data = Data_prep(path)
+    config_path = 'config.yaml'
+    create_data = Data_prep(config_path)
     number_of_samples = 2500
     img_shape = (512,512)
     shift_var = 24
