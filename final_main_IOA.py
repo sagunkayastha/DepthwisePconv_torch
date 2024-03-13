@@ -288,3 +288,6 @@ if __name__ == "__main__":
     config_path = 'config.yaml'
     trainer = Trainer(config_path)
     trainer.train()
+
+
+# test
